@@ -16,6 +16,8 @@
     "auth": "node dist/index.js auth",
     "status": "node dist/index.js status",
     "watch": "node dist/index.js watch",
+    "install:watcher": "python3 scripts/install-watcher.py",
+    "install:http": "python3 scripts/install-http-server.py",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test dist/test/*.test.js"
   },

@@ -7,6 +7,13 @@ import { SafeLogger } from "./logger.js";
 import { createZendeskMcpServer } from "./server.js";
 import { ZendeskApiClient } from "./zendesk-client.js";
 
+function timingSafeEqualToken(candidate: string, expectedToken: string): boolean {
+  const bufA = Buffer.from(candidate, "utf8");
+  const bufB = Buffer.from(expectedToken, "utf8");
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 function verifyBearerHeader(
   authHeader: string | undefined,
   expectedToken: string
@@ -14,11 +21,19 @@ function verifyBearerHeader(
   if (!authHeader) return false;
   const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
   if (!match) return false;
-  const candidate = match[1].trim();
-  const bufA = Buffer.from(candidate, "utf8");
-  const bufB = Buffer.from(expectedToken, "utf8");
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
+  return timingSafeEqualToken(match[1].trim(), expectedToken);
+}
+
+function verifyPathToken(pathname: string, expectedToken: string): boolean {
+  if (!pathname.startsWith("/mcp/")) return false;
+  const rawSegment = pathname.slice("/mcp/".length).replace(/\/+$/, "");
+  if (!rawSegment || rawSegment.includes("/")) return false;
+  try {
+    const decoded = decodeURIComponent(rawSegment);
+    return timingSafeEqualToken(decoded, expectedToken);
+  } catch {
+    return false;
+  }
 }
 
 export async function startStreamableHttpServer(options: {
@@ -49,14 +64,24 @@ export async function startStreamableHttpServer(options: {
         return;
       }
 
-      if (reqUrl.pathname !== "/mcp") {
+      const isExactMcpPath =
+        reqUrl.pathname === "/mcp" || reqUrl.pathname === "/mcp/";
+      const isSecretMcpPath = reqUrl.pathname.startsWith("/mcp/");
+
+      if (!isExactMcpPath && !isSecretMcpPath) {
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Not Found. Use /mcp endpoint." }));
         return;
       }
 
       // Enforce agent-to-MCP authentication boundary (distinct from Zendesk OAuth)
-      if (!verifyBearerHeader(req.headers.authorization, expectedBearer)) {
+      const authorizedByHeader = verifyBearerHeader(
+        req.headers.authorization,
+        expectedBearer
+      );
+      const authorizedByPath = verifyPathToken(reqUrl.pathname, expectedBearer);
+
+      if (!authorizedByHeader && !authorizedByPath) {
         res.writeHead(401, {
           "Content-Type": "application/json",
           "WWW-Authenticate": 'Bearer realm="zendesk-mcp"',
@@ -68,6 +93,9 @@ export async function startStreamableHttpServer(options: {
         );
         return;
       }
+
+      // Normalize URL to /mcp so the downstream transport never sees or logs the path secret
+      req.url = `/mcp${reqUrl.search}`;
 
       const mcpServer = createZendeskMcpServer({
         config,

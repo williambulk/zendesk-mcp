@@ -300,6 +300,26 @@ describe("MCP Server Protocol, Tool Registry, Read-Only Enforcement & HTTP Auth 
         ]
       );
       await mcpClient.close();
+
+      // 4. Secret-path token (/mcp/<token>) also authenticates for UIs without custom headers, while wrong path token returns 401
+      const wrongPathRes = await fetch(`${baseUrl}/mcp/wrong-secret-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      });
+      assert.equal(wrongPathRes.status, 401);
+
+      const pathClient = new Client({
+        name: "http-path-mcp-client",
+        version: "1.0.0",
+      });
+      const pathTransport = new StreamableHTTPClientTransport(
+        new URL(`${baseUrl}/mcp/mcp-gateway-secret-token-987654321`)
+      );
+      await pathClient.connect(pathTransport);
+      const { tools: pathTools } = await pathClient.listTools();
+      assert.equal(pathTools.length, 7);
+      await pathClient.close();
     } finally {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
       fs.rmSync(tmpDir, { recursive: true, force: true });
