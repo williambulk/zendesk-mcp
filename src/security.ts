@@ -217,7 +217,7 @@ export function validateOutboundRequest(
   if (normalizedMethod !== "GET") {
     throw new PolicyViolationError(
       "READ_ONLY_POLICY",
-      `Zendesk MCP is strictly read-only. HTTP ${normalizedMethod} to "${pathname}" is prohibited.`
+      `This Zendesk MCP route/method is not enabled. HTTP ${normalizedMethod} to "${pathname}" is prohibited.`
     );
   }
 

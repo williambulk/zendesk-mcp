@@ -12,11 +12,12 @@ import { checkTicketReplies } from "./watcher.js";
 
 function printHelp(): void {
   process.stderr.write(
-    `zendesk-mcp — Read-only MCP Server for Zendesk Support API\n\n` +
+    `zendesk-mcp — MCP Server for Zendesk Support API\n\n` +
       `Usage:\n` +
       `  zendesk-mcp [serve] [--transport=stdio|http]   Start the MCP server (default: stdio)\n` +
       `  zendesk-mcp auth [--manual]                    Run OAuth 2.0 + PKCE authorization flow\n` +
       `  zendesk-mcp status [--verify]                  Inspect local OAuth token status\n` +
+      `  zendesk-mcp watch                              Poll all accessible tickets for new replies\n` +
       `  zendesk-mcp --help                             Show this help message\n`
   );
 }

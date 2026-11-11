@@ -315,6 +315,12 @@ export class ZendeskOAuthManager {
     ];
   }
 
+  private assertGrantedScopes(token: StoredTokenSet): void {
+    const granted = new Set(token.scope.split(/\s+/));
+    const missing = this.config.oauthScopes.filter(scope => !granted.has(scope) && !(granted.has("read") && scope.endsWith(":read")));
+    if (missing.length) throw new ReauthorizationRequiredError("scope_change", `Saved OAuth token lacks configured scopes: ${missing.join(" ")}. Run 'npm run auth' for fresh consent.`);
+  }
+
   private isTokenFresh(
     token: StoredTokenSet,
     now: number = Date.now()
@@ -348,12 +354,14 @@ export class ZendeskOAuthManager {
     const forceRefresh = options?.forceRefresh ?? false;
 
     if (!forceRefresh && this.cachedToken && this.isTokenFresh(this.cachedToken)) {
+      this.assertGrantedScopes(this.cachedToken);
       return this.cachedToken.access_token;
     }
 
     // Check disk before triggering a network refresh if we haven't loaded yet
     if (!forceRefresh && !this.cachedToken) {
       const diskToken = await loadTokenSet(this.config.tokenFilePath);
+      if (diskToken && diskToken.subdomain === this.config.subdomain) this.assertGrantedScopes(diskToken);
       if (diskToken && this.isTokenFresh(diskToken)) {
         this.cachedToken = diskToken;
         return diskToken.access_token;
@@ -368,6 +376,7 @@ export class ZendeskOAuthManager {
       failedAccessToken:
         options?.failedAccessToken ?? this.cachedToken?.access_token,
     });
+    this.assertGrantedScopes(rotated);
     return rotated.access_token;
   }
 

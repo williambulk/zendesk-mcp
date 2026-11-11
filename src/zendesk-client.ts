@@ -9,6 +9,7 @@ import {
 import { SafeLogger } from "./logger.js";
 import { ZendeskOAuthManager } from "./oauth.js";
 import { updateTicketSchema, replyTicketSchema, TicketUpdateInput, TicketReplyInput } from "./ticket-inputs.js";
+import { downloadAttachment, MAX_ATTACHMENT_BYTES } from "./attachment-reader.js";
 import {
   boundPlainText,
   enforceTicketSearchQuery,
@@ -258,6 +259,40 @@ export class ZendeskApiClient {
   public async listTicketFields() {
     const result = await this.getJson<{ ticket_fields?: Array<Record<string, unknown>> }>("/api/v2/ticket_fields.json");
     return { fields: result.data.ticket_fields ?? [], fetch_time: result.fetchTime };
+  }
+
+  public async getTicketAttachment(ticketIdOrUrl: number | string, attachmentId: number) {
+    const ticketId = parseTicketIdentifier(ticketIdOrUrl, this.config.subdomain);
+    if (!Number.isSafeInteger(attachmentId) || attachmentId <= 0) throw new PolicyViolationError("INVALID_ATTACHMENT_ID", "Attachment ID must be a positive safe integer.");
+    let cursor: string | undefined;
+    let found = false;
+    for (let page = 0; page < 100; page++) {
+      const comments = await this.listTicketComments(ticketId, { pageSize: 100, cursor });
+      found = comments.comments.some(c => [...c.attachments, ...c.inline_attachments].some(a => a.id === attachmentId));
+      if (found) break;
+      if (!comments.has_more) throw new PolicyViolationError("ATTACHMENT_NOT_ON_TICKET", "Attachment is not present in this ticket's accessible comments.");
+      if (!comments.next_cursor) throw new PolicyViolationError("ATTACHMENT_LOOKUP_INCOMPLETE", "Comment pagination has no usable continuation cursor.");
+      cursor = comments.next_cursor;
+    }
+    if (!found) throw new PolicyViolationError("ATTACHMENT_LOOKUP_INCOMPLETE", "Attachment lookup exceeded 100 comment pages. No attachment downloaded.");
+    const { data, fetchTime } = await this.getJson<{ attachment?: Record<string, unknown> }>(`/api/v2/attachments/${attachmentId}.json`);
+    if (!data.attachment || data.attachment.id !== attachmentId) throw new ZendeskApiError(502, "Unexpected attachment metadata response.");
+    const attachment = this.normalizeAttachment(data.attachment);
+    return { ticket_id: ticketId, attachment: { ...attachment, deleted: data.attachment.deleted === true, malware_scan_result: typeof data.attachment.malware_scan_result === "string" ? data.attachment.malware_scan_result : "unknown" }, fetch_time: fetchTime };
+  }
+
+  public async readTicketAttachment(ticketIdOrUrl: number | string, attachmentId: number) {
+    const metadata = await this.getTicketAttachment(ticketIdOrUrl, attachmentId);
+    const attachment = metadata.attachment;
+    if (attachment.deleted || attachment.malware_scan_result !== "malware_not_found") throw new PolicyViolationError("ATTACHMENT_NOT_CLEARED", "Attachment is deleted or has not passed Zendesk's malware scan. File content was not downloaded.");
+    if (!attachment.content_url) throw new PolicyViolationError("UNSAFE_ATTACHMENT_URL", "No safe content URL is available.");
+    if (attachment.size_bytes !== null && attachment.size_bytes > MAX_ATTACHMENT_BYTES) throw new PolicyViolationError("ATTACHMENT_TOO_LARGE", "Attachment exceeds the 10 MiB download limit.");
+    const release = await this.semaphore.acquire();
+    try {
+      const accessToken = await this.oauthManager.getValidAccessToken();
+      const content = await downloadAttachment({ url: attachment.content_url, subdomain: this.config.subdomain, accessToken, timeoutMs: this.config.requestTimeoutMs, fetchFn: this.fetchFn });
+      return { metadata, ...content };
+    } finally { release(); }
   }
 
   public async updateTicket(input: TicketUpdateInput) {

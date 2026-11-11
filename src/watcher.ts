@@ -3,7 +3,7 @@ import path from "node:path";
 import { ZendeskMcpConfig } from "./config.js";
 import { ZendeskApiClient } from "./zendesk-client.js";
 
-interface WatchState { subdomain: string; started_at: string; checked_through: string; last_success?: string }
+interface WatchState { subdomain: string; started_at: string; checked_through: string; last_success?: string; last_error?: string }
 interface ReplyUpdate { ticket_id: number; comment_id: number; author_id: number | null; public: boolean; created_at: string; detected_at: string }
 const watchDir = (config: ZendeskMcpConfig) => path.join(path.dirname(config.tokenFilePath), `watch-${config.subdomain}`);
 
@@ -15,6 +15,24 @@ async function saveState(dir: string, state: WatchState) {
   const temp = path.join(dir, `state-${process.pid}.tmp`);
   await fs.writeFile(temp, JSON.stringify(state), { mode: 0o600 });
   await fs.rename(temp, path.join(dir, "state.json"));
+}
+
+async function* changedTickets(client: Pick<ZendeskApiClient, "searchTickets">, from: number, until: number): AsyncGenerator<{id: number}> {
+  const query = `updated>=${new Date(from).toISOString()} updated<${new Date(until).toISOString()}`;
+  for (let page = 1; page <= 10; page++) {
+    const search = await client.searchTickets({ query, page, perPage: 100, sortBy: "updated_at", sortOrder: "asc" });
+    if (search.total_count > 1000) {
+      // Partition before paging, rather than silently dropping matches at Zendesk's search cap.
+      if (until - from <= 1000) throw new Error("More than 1,000 tickets changed within one second. Poll is incomplete; checkpoint not advanced.");
+      const mid = Math.floor((from + until) / 2);
+      yield* changedTickets(client, from, mid);
+      yield* changedTickets(client, mid, until);
+      return;
+    }
+    yield* search.tickets;
+    if (!search.has_more) return;
+    if (page === 10) throw new Error("Search pagination incomplete; checkpoint not advanced.");
+  }
 }
 
 export async function checkTicketReplies(client: Pick<ZendeskApiClient, "searchTickets" | "listTicketComments">, config: ZendeskMcpConfig) {
@@ -42,10 +60,7 @@ export async function checkTicketReplies(client: Pick<ZendeskApiClient, "searchT
     // Revisit a full day to tolerate search indexing lag; comment IDs deduplicate overlap.
     const since = new Date(Math.max(Date.parse(state.started_at), Date.parse(state.checked_through) - 86400_000)).toISOString();
     let checked = 0, added = 0;
-    for (let page = 1; page <= 10; page++) {
-      const search = await client.searchTickets({ query: `updated>${since}`, page, perPage: 100, sortBy: "updated_at", sortOrder: "asc" });
-      if (search.total_count > 1000) throw new Error("More than 1,000 tickets changed in the polling window. Checkpoint was not advanced. Narrow/split the window before resuming; updates may be incomplete.");
-      for (const ticket of search.tickets) {
+    for await (const ticket of changedTickets(client, Date.parse(since), Date.parse(now))) {
         checked++;
         let cursor: string | undefined;
         for (let p = 0; p < 100; p++) {
@@ -60,12 +75,14 @@ export async function checkTicketReplies(client: Pick<ZendeskApiClient, "searchT
           if (!comments.next_cursor || p === 99) throw new Error("Comment pagination incomplete; checkpoint not advanced.");
           cursor = comments.next_cursor;
         }
-      }
-      if (!search.has_more) break;
     }
-    state.checked_through = now; state.last_success = now;
+    state.checked_through = now; state.last_success = now; delete state.last_error;
     await saveState(dir, state);
     return { status: "ok", tickets_checked: checked, new_comments: added, checked_through: now, indexing_notice: "Search may lag. Polls revisit the previous day; comments indexed later than that can be missed." };
+  } catch (err) {
+    const state = await readState(dir);
+    if (state) { state.last_error = err instanceof Error ? err.message : String(err); await saveState(dir, state); }
+    throw err;
   } finally { await fs.unlink(lock); }
 }
 
@@ -77,7 +94,8 @@ export async function readReplyInbox(config: ZendeskMcpConfig, since?: string, l
   const updates: ReplyUpdate[] = [];
   for (const file of files.filter(f => /^\d+\.json$/.test(f))) {
     const update = JSON.parse(await fs.readFile(path.join(dir, "replies", file), "utf8")) as ReplyUpdate;
-    if (!since || Date.parse(update.detected_at) > Date.parse(since)) updates.push(update);
+    // Hide unfinished batches so a concurrent reader cannot advance past files still being written.
+    if (state.last_success && Date.parse(update.detected_at) <= Date.parse(state.last_success) && (!since || Date.parse(update.detected_at) > Date.parse(since))) updates.push(update);
   }
   updates.sort((a, b) => a.detected_at.localeCompare(b.detected_at) || a.comment_id - b.comment_id);
   // Include all records sharing the boundary timestamp so `since` cannot skip a batch.

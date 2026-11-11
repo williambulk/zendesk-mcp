@@ -113,9 +113,10 @@ describe("MCP Server Protocol, Tool Registry, Read-Only Enforcement & HTTP Auth 
       const { tools } = await mcpClient.listTools();
       const toolNames = tools.map((t) => t.name).sort();
 
-      // Verify exact 4 read-only tools and zero mutation tools
+      // Ticket writes remain absent when disabled.
       assert.deepEqual(toolNames, [
         "zendesk_check_replies",
+        "zendesk_get_attachment",
         "zendesk_get_reply_updates",
         "zendesk_get_ticket",
         "zendesk_get_user",
@@ -285,12 +286,13 @@ describe("MCP Server Protocol, Tool Registry, Read-Only Enforcement & HTTP Auth 
       );
       await mcpClient.connect(transport);
       const { tools } = await mcpClient.listTools();
-      // Since enableUserTool=false, only the 3 ticket tools are registered
+      // Identity tool is omitted when disabled.
       assert.deepEqual(
         tools.map((t) => t.name).sort(),
         [
           "zendesk_check_replies",
-          "zendesk_get_reply_updates",
+          "zendesk_get_attachment",
+        "zendesk_get_reply_updates",
           "zendesk_get_ticket",
           "zendesk_list_ticket_comments",
           "zendesk_list_ticket_fields",
@@ -332,7 +334,7 @@ describe("MCP Server Protocol, Tool Registry, Read-Only Enforcement & HTTP Auth 
     await mcpClient.connect(stdioTransport);
     try {
       const { tools } = await mcpClient.listTools();
-      assert.equal(tools.length, 7);
+      assert.equal(tools.length, 8);
 
       // Calling a tool without a token file should return a structured ReauthorizationRequiredError over stdio
       const res = await mcpClient.callTool({

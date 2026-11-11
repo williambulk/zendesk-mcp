@@ -32,9 +32,10 @@ export interface ZendeskMcpConfig {
   httpBearerToken?: string;
 }
 
-const ALLOWED_READ_SCOPES = new Set([
+const ALLOWED_OAUTH_SCOPES = new Set([
   "read",
   "tickets:write",
+  "ticket_attachments:read",
   "tickets:read",
   "users:read",
   "organizations:read",
@@ -48,7 +49,7 @@ export function validateOAuthScopes(rawScopes: string | string[]): string[] {
 
   if (tokens.length === 0) {
     throw new ConfigurationError(
-      "At least one read-only OAuth scope is required (e.g. 'tickets:read')."
+      "At least one OAuth scope is required (e.g. 'tickets:read')."
     );
   }
 
@@ -56,12 +57,12 @@ export function validateOAuthScopes(rawScopes: string | string[]): string[] {
     if (
       scope === "write" ||
       scope === "impersonate" ||
-      !ALLOWED_READ_SCOPES.has(scope)
+      !ALLOWED_OAUTH_SCOPES.has(scope)
     ) {
       throw new PolicyViolationError(
         "INVALID_OAUTH_SCOPE",
         `OAuth scope "${scope}" is not permitted. Only supported scopes (${Array.from(
-          ALLOWED_READ_SCOPES
+          ALLOWED_OAUTH_SCOPES
         ).join(", ")}) are allowed.`
       );
     }

@@ -234,7 +234,7 @@ describe("Security, Tenant Pinning & Sanitization", () => {
       "tickets:read",
       "users:read",
     ]);
-    assert.deepEqual(validateOAuthScopes("read tickets:write"), ["read", "tickets:write"]);
+    assert.deepEqual(validateOAuthScopes("read tickets:write ticket_attachments:read"), ["read", "tickets:write", "ticket_attachments:read"]);
     assert.throws(() => validateOAuthScopes("tickets:read users:write"), PolicyViolationError);
     assert.throws(
       () => validateOAuthScopes("read write"),
