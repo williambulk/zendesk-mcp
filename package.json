@@ -1,0 +1,32 @@
+{
+  "name": "zendesk-mcp",
+  "version": "0.1.0",
+  "description": "Read-only Model Context Protocol (MCP) server for Zendesk Support API with OAuth 2.0 PKCE and cross-process token rotation locking",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "zendesk-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "auth": "node dist/index.js auth",
+    "status": "node dist/index.js status",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.19",
+    "typescript": "^5.7.3"
+  }
+}

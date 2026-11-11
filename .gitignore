@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.token.json
+tokens.json
+tokens.json.*
+*.lock
+.DS_Store
+*.log
+zendesk-mcp-HANDOVER.md
+*-HANDOVER.md
