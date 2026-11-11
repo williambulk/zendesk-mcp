@@ -39,6 +39,7 @@ async function createTestClientEnv(
   });
 
   const config = loadConfig({
+    enableWrites: false,
     subdomain: "acme",
     oauthClientId: "zd_client_1",
     tokenFilePath,

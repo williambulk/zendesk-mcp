@@ -8,6 +8,7 @@ import { ZendeskOAuthManager } from "./oauth.js";
 import { redactSecrets } from "./security.js";
 import { createZendeskMcpServer } from "./server.js";
 import { ZendeskApiClient } from "./zendesk-client.js";
+import { checkTicketReplies } from "./watcher.js";
 
 function printHelp(): void {
   process.stderr.write(
@@ -61,6 +62,11 @@ async function main(): Promise<void> {
   });
 
   const subcommand = args.find((a) => !a.startsWith("-")) ?? "serve";
+
+  if (subcommand === "watch") {
+    process.stderr.write(JSON.stringify(await checkTicketReplies(client, config)) + "\n");
+    return;
+  }
 
   if (subcommand === "auth") {
     const manualOnly = args.includes("--manual");

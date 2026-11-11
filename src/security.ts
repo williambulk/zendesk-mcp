@@ -140,7 +140,8 @@ export function parseTicketIdentifier(
 export function validateOutboundRequest(
   requestUrl: string | URL,
   method: string,
-  expectedSubdomain: string
+  expectedSubdomain: string,
+  allowTicketWrite = false
 ): URL {
   const validSubdomain = validateSubdomain(expectedSubdomain);
   const expectedHost = `${validSubdomain}.zendesk.com`;
@@ -207,7 +208,12 @@ export function validateOutboundRequest(
     return url;
   }
 
-  // All business API routes are strictly GET-only
+  // Opt-in writes are restricted to a single existing ticket, never bulk or user routes.
+  if (allowTicketWrite && normalizedMethod === "PUT" && /^\/api\/v2\/tickets\/[1-9]\d*\.json$/.test(pathname) && !url.search) {
+    return url;
+  }
+
+  // All other business API routes are strictly GET-only
   if (normalizedMethod !== "GET") {
     throw new PolicyViolationError(
       "READ_ONLY_POLICY",

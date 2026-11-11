@@ -229,15 +229,13 @@ describe("Security, Tenant Pinning & Sanitization", () => {
     );
   });
 
-  it("rejects write or broad OAuth scopes", () => {
+  it("allows broad read and narrow ticket writes while rejecting other writes", () => {
     assert.deepEqual(validateOAuthScopes("tickets:read users:read"), [
       "tickets:read",
       "users:read",
     ]);
-    assert.throws(
-      () => validateOAuthScopes("tickets:read tickets:write"),
-      PolicyViolationError
-    );
+    assert.deepEqual(validateOAuthScopes("read tickets:write"), ["read", "tickets:write"]);
+    assert.throws(() => validateOAuthScopes("tickets:read users:write"), PolicyViolationError);
     assert.throws(
       () => validateOAuthScopes("read write"),
       PolicyViolationError

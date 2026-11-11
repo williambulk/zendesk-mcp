@@ -55,6 +55,7 @@ describe("OAuth 2.0 + PKCE, Atomic Token Persistence & Cross-Process Locking", (
     const tokenFilePath = path.join(tokenDir, "tokens.json");
 
     const config = loadConfig({
+    enableWrites: false,
       subdomain: "acme",
       oauthClientId: "zd_client_1",
       tokenFilePath,
@@ -124,6 +125,7 @@ describe("OAuth 2.0 + PKCE, Atomic Token Persistence & Cross-Process Locking", (
     });
 
     const config = loadConfig({
+    enableWrites: false,
       subdomain: "acme",
       oauthClientId: "zd_client_1",
       tokenFilePath,
@@ -225,6 +227,7 @@ describe("OAuth 2.0 + PKCE, Atomic Token Persistence & Cross-Process Locking", (
     });
 
     const config = loadConfig({
+    enableWrites: false,
       subdomain: "acme",
       oauthClientId: "zd_client_1",
       tokenFilePath,

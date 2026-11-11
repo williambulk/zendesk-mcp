@@ -15,7 +15,7 @@ import { createZendeskMcpServer } from "../src/server.js";
 import { ZendeskApiClient } from "../src/zendesk-client.js";
 
 describe("MCP Server Protocol, Tool Registry, Read-Only Enforcement & HTTP Auth Boundary", () => {
-  it("initializes MCP protocol, registers only the 4 read-only tools with annotations, and executes tool calls", async () => {
+  it("initializes MCP protocol, registers read and local checking tools with annotations, without ticket writes, and executes tool calls", async () => {
     const tmpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "zendesk-mcp-server-test-")
     );
@@ -33,6 +33,7 @@ describe("MCP Server Protocol, Tool Registry, Read-Only Enforcement & HTTP Auth 
     });
 
     const config = loadConfig({
+    enableWrites: false,
       subdomain: "acme",
       oauthClientId: "zd_client_1",
       tokenFilePath,
@@ -114,17 +115,20 @@ describe("MCP Server Protocol, Tool Registry, Read-Only Enforcement & HTTP Auth 
 
       // Verify exact 4 read-only tools and zero mutation tools
       assert.deepEqual(toolNames, [
+        "zendesk_check_replies",
+        "zendesk_get_reply_updates",
         "zendesk_get_ticket",
         "zendesk_get_user",
         "zendesk_list_ticket_comments",
+        "zendesk_list_ticket_fields",
         "zendesk_search_tickets",
       ]);
 
       for (const tool of tools) {
         assert.equal(
           tool.annotations?.readOnlyHint,
-          true,
-          `Tool ${tool.name} must have readOnlyHint=true`
+          tool.name !== "zendesk_check_replies",
+          `Tool ${tool.name} read-only annotation`
         );
         assert.equal(
           tool.annotations?.destructiveHint,
@@ -216,6 +220,7 @@ describe("MCP Server Protocol, Tool Registry, Read-Only Enforcement & HTTP Auth 
     });
 
     const config = loadConfig({
+    enableWrites: false,
       subdomain: "acme",
       oauthClientId: "zd_client_1",
       tokenFilePath,
@@ -284,8 +289,11 @@ describe("MCP Server Protocol, Tool Registry, Read-Only Enforcement & HTTP Auth 
       assert.deepEqual(
         tools.map((t) => t.name).sort(),
         [
+          "zendesk_check_replies",
+          "zendesk_get_reply_updates",
           "zendesk_get_ticket",
           "zendesk_list_ticket_comments",
+          "zendesk_list_ticket_fields",
           "zendesk_search_tickets",
         ]
       );
@@ -308,6 +316,7 @@ describe("MCP Server Protocol, Tool Registry, Read-Only Enforcement & HTTP Auth 
       env: {
         ...process.env,
         ZENDESK_SUBDOMAIN: "acme",
+        ZENDESK_ENABLE_WRITES: "false",
         ZENDESK_OAUTH_CLIENT_ID: "zd_stdio_client",
         ZENDESK_TOKEN_FILE: tokenFilePath,
         ZENDESK_LOG_LEVEL: "info",
@@ -323,7 +332,7 @@ describe("MCP Server Protocol, Tool Registry, Read-Only Enforcement & HTTP Auth 
     await mcpClient.connect(stdioTransport);
     try {
       const { tools } = await mcpClient.listTools();
-      assert.equal(tools.length, 4);
+      assert.equal(tools.length, 7);
 
       // Calling a tool without a token file should return a structured ReauthorizationRequiredError over stdio
       const res = await mcpClient.callTool({

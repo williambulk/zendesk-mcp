@@ -23,6 +23,7 @@ export interface ZendeskMcpConfig {
   maxConcurrentRequests: number;
   maxBodyChars: number;
   enableUserTool: boolean;
+  enableWrites: boolean;
   resolveCustomFields: boolean;
   logLevel: LogLevel;
   transport: McpTransportMode;
@@ -32,6 +33,8 @@ export interface ZendeskMcpConfig {
 }
 
 const ALLOWED_READ_SCOPES = new Set([
+  "read",
+  "tickets:write",
   "tickets:read",
   "users:read",
   "organizations:read",
@@ -52,23 +55,21 @@ export function validateOAuthScopes(rawScopes: string | string[]): string[] {
   for (const scope of tokens) {
     if (
       scope === "write" ||
-      scope === "read" ||
       scope === "impersonate" ||
-      scope.endsWith(":write") ||
       !ALLOWED_READ_SCOPES.has(scope)
     ) {
       throw new PolicyViolationError(
         "INVALID_OAUTH_SCOPE",
-        `OAuth scope "${scope}" is not permitted. Only narrow read-only scopes (${Array.from(
+        `OAuth scope "${scope}" is not permitted. Only supported scopes (${Array.from(
           ALLOWED_READ_SCOPES
         ).join(", ")}) are allowed.`
       );
     }
   }
 
-  if (!tokens.includes("tickets:read")) {
+  if (!tokens.includes("tickets:read") && !tokens.includes("read")) {
     throw new ConfigurationError(
-      "OAuth scopes must include 'tickets:read' for Zendesk ticket tools."
+      "OAuth scopes must include 'tickets:read' or 'read' for Zendesk ticket tools."
     );
   }
 
@@ -314,6 +315,11 @@ export function loadConfig(
     overrides.enableUserTool ??
     parseBoolean(get("ZENDESK_ENABLE_USER_TOOL"), true);
 
+  const enableWrites = overrides.enableWrites ?? parseBoolean(get("ZENDESK_ENABLE_WRITES"), false);
+  if (enableWrites && !oauthScopes.includes("tickets:write")) {
+    throw new ConfigurationError("ZENDESK_ENABLE_WRITES requires the tickets:write OAuth scope.");
+  }
+
   const resolveCustomFields =
     overrides.resolveCustomFields ??
     parseBoolean(get("ZENDESK_RESOLVE_CUSTOM_FIELDS"), true);
@@ -387,6 +393,7 @@ export function loadConfig(
     maxConcurrentRequests,
     maxBodyChars,
     enableUserTool,
+    enableWrites,
     resolveCustomFields,
     logLevel,
     transport: rawTransport,

@@ -8,6 +8,7 @@ import {
 } from "./errors.js";
 import { SafeLogger } from "./logger.js";
 import { ZendeskOAuthManager } from "./oauth.js";
+import { updateTicketSchema, replyTicketSchema, TicketUpdateInput, TicketReplyInput } from "./ticket-inputs.js";
 import {
   boundPlainText,
   enforceTicketSearchQuery,
@@ -252,6 +253,59 @@ export class ZendeskApiClient {
     this.semaphore = new Semaphore(this.config.maxConcurrentRequests);
     this.customFieldsCacheTtlMs =
       options.customFieldsCacheTtlMs ?? 10 * 60 * 1000;
+  }
+
+  public async listTicketFields() {
+    const result = await this.getJson<{ ticket_fields?: Array<Record<string, unknown>> }>("/api/v2/ticket_fields.json");
+    return { fields: result.data.ticket_fields ?? [], fetch_time: result.fetchTime };
+  }
+
+  public async updateTicket(input: TicketUpdateInput) {
+    const args = updateTicketSchema.parse(input);
+    return this.putTicket(args.ticket_id, { ...args.fields, safe_update: true, updated_stamp: args.updated_stamp });
+  }
+
+  public async replyTicket(input: TicketReplyInput) {
+    const args = replyTicketSchema.parse(input);
+    this.requireWrites();
+    const { user } = await this.getUser("me");
+    return this.putTicket(args.ticket_id, {
+      safe_update: true, updated_stamp: args.updated_stamp,
+      ...(args.status ? { status: args.status } : {}),
+      comment: { body: args.body, public: args.visibility === "public", author_id: user.id },
+    });
+  }
+
+  private requireWrites(): void {
+    if (!this.config.enableWrites || !this.config.oauthScopes.includes("tickets:write")) {
+      throw new PolicyViolationError("WRITES_DISABLED", "Ticket writes require ZENDESK_ENABLE_WRITES=true and tickets:write consent.");
+    }
+  }
+
+  private async putTicket(ticketIdOrUrl: number | string, ticket: Record<string, unknown>) {
+    this.requireWrites();
+    const id = parseTicketIdentifier(ticketIdOrUrl, this.config.subdomain);
+    const url = validateOutboundRequest(new URL(`/api/v2/tickets/${id}.json`, getTenantOrigin(this.config.subdomain)), "PUT", this.config.subdomain, true);
+    const release = await this.semaphore.acquire();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.config.requestTimeoutMs);
+    try {
+      const accessToken = await this.oauthManager.getValidAccessToken();
+      // Never retry writes automatically: a timeout or 5xx may follow a committed reply.
+      const response = await this.fetchFn(url.toString(), {
+        method: "PUT", redirect: "manual", signal: controller.signal,
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket }),
+      });
+      if (response.status === 409) throw new ZendeskApiError(409, "Ticket changed since it was reviewed. Read the latest ticket and comments before submitting a new update.", { errorCode: "update_conflict" });
+      if (!response.ok) throw new ZendeskApiError(response.status, `Ticket update returned HTTP ${response.status}. No automatic retry was made. For 5xx or redirects, verify the ticket and comments before resubmitting.`, { errorCode: `http_${response.status}` });
+      const data = await response.json() as { ticket?: { id: number; updated_at: string; status: string }; audit?: { id: number } };
+      if (data.ticket?.id !== id) throw new Error("Unexpected update response");
+      return { ticket_id: id, updated_at: data.ticket.updated_at, status: data.ticket.status, audit_id: data.audit?.id, fetch_time: new Date().toISOString() };
+    } catch (err) {
+      if (err instanceof ZendeskApiError) throw err;
+      throw new ZendeskApiError(0, "Ticket update outcome is unknown. Read the ticket and comments before retrying to avoid duplicate replies.", { errorCode: "write_outcome_unknown" });
+    } finally { clearTimeout(timeout); release(); }
   }
 
   /**
