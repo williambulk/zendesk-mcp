@@ -914,10 +914,30 @@ export class ZendeskApiClient {
           signal: controller.signal,
         });
       } catch (err) {
+        clearTimeout(timeoutId);
+        const cause =
+          err instanceof Error && "cause" in err && err.cause
+            ? ` (${
+                err.cause instanceof Error
+                  ? err.cause.message
+                  : String(err.cause)
+              })`
+            : "";
         const msg = redactSecrets(
-          err instanceof Error ? err.message : String(err),
+          `${err instanceof Error ? err.message : String(err)}${cause}`,
           this.oauthManager.getKnownSecrets()
         );
+
+        if (attempt < this.config.maxRetries) {
+          attempt += 1;
+          const waitMs = Math.min(2000, 500 * Math.pow(2, attempt - 1));
+          this.logger.warn(
+            `Transient network error requesting ${validatedUrl.pathname}; retrying in ${waitMs}ms (attempt ${attempt}/${this.config.maxRetries}): ${msg}`
+          );
+          await this.sleepFn(waitMs);
+          continue;
+        }
+
         throw new ZendeskApiError(
           0,
           `Network error requesting ${validatedUrl.pathname}: ${msg}`

@@ -358,8 +358,8 @@ export class ZendeskOAuthManager {
       return this.cachedToken.access_token;
     }
 
-    // Check disk before triggering a network refresh if we haven't loaded yet
-    if (!forceRefresh && !this.cachedToken) {
+    // Check disk before triggering a network refresh (picks up tokens rotated by other processes such as watch)
+    if (!forceRefresh) {
       const diskToken = await loadTokenSet(this.config.tokenFilePath);
       if (diskToken && diskToken.subdomain === this.config.subdomain) this.assertGrantedScopes(diskToken);
       if (diskToken && this.isTokenFresh(diskToken)) {

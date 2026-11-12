@@ -6,6 +6,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import time
 
 if sys.platform != "darwin":
     raise SystemExit("Use cron/systemd to run `node /absolute/path/dist/index.js watch` every 15 minutes on other platforms.")
@@ -30,7 +31,7 @@ job = {
     "WorkingDirectory": str(repo),
     "StartInterval": 900,
     "RunAtLoad": True,
-    "ProcessType": "Background",
+    "ProcessType": "Interactive",
     "Umask": 0o077,
     "StandardOutPath": str(logs / "watch.stdout.log"),
     "StandardErrorPath": str(logs / "watch.stderr.log"),
@@ -40,6 +41,7 @@ with target.open("wb") as handle:
 os.chmod(target, 0o600)
 domain = f"gui/{os.getuid()}"
 subprocess.run(["launchctl", "bootout", f"{domain}/{label}"], capture_output=True)
+time.sleep(0.5)
 subprocess.run(["launchctl", "bootstrap", domain, str(target)], check=True)
 print(f"Installed {label}: all accessible tickets, every 15 minutes while this Mac is awake and the user is logged in.")
 print(f"Status: launchctl print {domain}/{label}")

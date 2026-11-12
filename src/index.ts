@@ -1,5 +1,9 @@
 #!/usr/bin/env node
+import dns from "node:dns";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+
+// Prefer IPv4 first to avoid dual-stack IPv6 connect timeouts on macOS when interfaces/displays sleep
+dns.setDefaultResultOrder("ipv4first");
 import { runOAuthSetupCli, runStatusCli } from "./auth-cli.js";
 import { loadConfig } from "./config.js";
 import { startStreamableHttpServer } from "./http-transport.js";

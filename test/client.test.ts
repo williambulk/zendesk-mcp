@@ -458,4 +458,51 @@ describe("ZendeskApiClient — Read Tools, Pagination, Rate Limits & Error Handl
       env.cleanup();
     }
   });
+
+  it("retries transient fetch network errors on idempotent GET requests and recovers", async () => {
+    const sleepCalls: number[] = [];
+    let calls = 0;
+
+    const mockFetch: typeof fetch = async (input) => {
+      const url = String(input);
+      assert.equal(url, "https://acme.zendesk.com/api/v2/tickets/12345.json");
+      calls += 1;
+      if (calls === 1) {
+        const err = new TypeError("fetch failed");
+        (err as TypeError & { cause?: unknown }).cause = new Error(
+          "connect ETIMEDOUT"
+        );
+        throw err;
+      }
+      return new Response(
+        JSON.stringify({
+          ticket: {
+            id: 12345,
+            subject: "Recovered after transient fetch error",
+            status: "open",
+            created_at: "2026-11-11T00:00:00Z",
+            updated_at: "2026-11-11T01:00:00Z",
+            description: "Body",
+            custom_fields: [],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    };
+
+    const env = await createTestClientEnv(mockFetch, {
+      maxRetries: 2,
+      sleepCalls,
+    });
+    try {
+      const res = await env.client.getTicket(12345, {
+        resolveCustomFields: false,
+      });
+      assert.equal(res.ticket.subject, "Recovered after transient fetch error");
+      assert.equal(calls, 2);
+      assert.deepEqual(sleepCalls, [500]);
+    } finally {
+      env.cleanup();
+    }
+  });
 });

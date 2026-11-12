@@ -6,6 +6,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import time
 
 if sys.platform != "darwin":
     raise SystemExit(
@@ -42,7 +43,7 @@ job = {
     "WorkingDirectory": str(repo),
     "RunAtLoad": True,
     "KeepAlive": True,
-    "ProcessType": "Background",
+    "ProcessType": "Interactive",
     "Umask": 0o077,
     "StandardOutPath": str(logs / "http.stdout.log"),
     "StandardErrorPath": str(logs / "http.stderr.log"),
@@ -54,6 +55,7 @@ os.chmod(target, 0o600)
 
 domain = f"gui/{os.getuid()}"
 subprocess.run(["launchctl", "bootout", f"{domain}/{label}"], capture_output=True)
+time.sleep(0.5)
 subprocess.run(["launchctl", "bootstrap", domain, str(target)], check=True)
 print(f"Installed and started {label} on http://127.0.0.1:3849/mcp")
 print(f"Status: launchctl print {domain}/{label}")
